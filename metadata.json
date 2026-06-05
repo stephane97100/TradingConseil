@@ -1,0 +1,6 @@
+{
+  "name": "Conseiller Trading Expert",
+  "description": "Application de conseil en trading en temps réel avec signaux techniques, historique de conseils et alertes personnalisées.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
