@@ -20,6 +20,7 @@ import { AuthPage } from "./components/AuthPage";
 import { SocialSentimentWidget } from "./components/SocialSentimentWidget";
 import { TechnicalIndicatorsWidget } from "./components/TechnicalIndicatorsWidget";
 import { PortfolioSimulatorWidget } from "./components/PortfolioSimulatorWidget";
+import { CorrelationWidget } from "./components/CorrelationWidget";
 import {
   Cpu,
   Search,
@@ -879,6 +880,11 @@ export default function App() {
                   symbol={selectedSymbol}
                 />
               </div>
+
+              {/* Correlation Visualization Scatter Plot with S&P 500 (D3.js) */}
+              <CorrelationWidget
+                symbol={selectedSymbol}
+              />
 
               {/* Expert Quantitative Advice Card */}
               <AIPositioningCard

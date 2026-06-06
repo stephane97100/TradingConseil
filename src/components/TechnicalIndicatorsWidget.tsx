@@ -160,40 +160,13 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
     };
   }, [compareHistory]);
 
-  if (!history || history.length < 15) {
-    return (
-      <div id="technical-indicators-fallback" className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center min-h-[350px]">
-        <Activity className="w-8 h-8 text-indigo-400 animate-pulse mb-3" />
-        <p className="text-xs text-slate-400 font-mono">Collecte ou volume de données insuffisant pour l'analyse technique avancée...</p>
-      </div>
-    );
-  }
-
-  // Calculate moving averages, standard deviation, and indicators
-  const closes = history.map((h) => h.close);
-  const latestPrice = closes[closes.length - 1] || 150;
-
-  // 1. RSI calculation (14 period)
-  const calculateRSI = () => {
-    let gains = 0;
-    let losses = 0;
-    for (let i = closes.length - 14; i < closes.length && i >= 1; i++) {
-      const diff = closes[i] - closes[i - 1];
-      if (diff > 0) {
-        gains += diff;
-      } else {
-        losses += Math.abs(diff);
-      }
-    }
-    const avgGain = gains / 14 || 1;
-    const avgLoss = losses / 14 || 1;
-    const rs = avgGain / avgLoss;
-    return Math.round(100 - 100 / (1 + rs));
-  };
-  const rsiValue = calculateRSI();
+  const closes = React.useMemo(() => {
+    return history ? history.map((h) => h.close) : [];
+  }, [history]);
 
   // RSI Sparkline Data for the last 30 days
   const rsiHistoryData = React.useMemo(() => {
+    if (!history || history.length < 15) return [];
     const list: { date: string; value: number }[] = [];
     const count = Math.min(30, history.length - 14);
     if (count <= 0) return [];
@@ -219,6 +192,37 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
     }
     return list;
   }, [closes, history]);
+
+  if (!history || history.length < 15) {
+    return (
+      <div id="technical-indicators-fallback" className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center min-h-[350px]">
+        <Activity className="w-8 h-8 text-indigo-400 animate-pulse mb-3" />
+        <p className="text-xs text-slate-400 font-mono">Collecte ou volume de données insuffisant pour l'analyse technique avancée...</p>
+      </div>
+    );
+  }
+
+  // Calculate moving averages, standard deviation, and indicators
+  const latestPrice = closes[closes.length - 1] || 150;
+
+  // 1. RSI calculation (14 period)
+  const calculateRSI = () => {
+    let gains = 0;
+    let losses = 0;
+    for (let i = closes.length - 14; i < closes.length && i >= 1; i++) {
+      const diff = closes[i] - closes[i - 1];
+      if (diff > 0) {
+        gains += diff;
+      } else {
+        losses += Math.abs(diff);
+      }
+    }
+    const avgGain = gains / 14 || 1;
+    const avgLoss = losses / 14 || 1;
+    const rs = avgGain / avgLoss;
+    return Math.round(100 - 100 / (1 + rs));
+  };
+  const rsiValue = calculateRSI();
 
   // 2. Bollinger Bands calculation (20 period)
   const calculateBollinger = () => {

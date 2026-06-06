@@ -392,6 +392,174 @@ function generateMockSocialSentiment(symbol: string) {
   };
 }
 
+function getNormalRandom(): { z1: number; z2: number } {
+  let u1 = 0;
+  let u2 = 0;
+  while (u1 === 0) u1 = Math.random();
+  while (u2 === 0) u2 = Math.random();
+  const r = Math.sqrt(-2.0 * Math.log(u1));
+  const z1 = r * Math.cos(2.0 * Math.PI * u2);
+  const z2 = r * Math.sin(2.0 * Math.PI * u2);
+  return { z1, z2 };
+}
+
+function generateCorrelatedHistory(symbol: string, days: number = 90) {
+  const sym = symbol.toUpperCase();
+  
+  let correlation = 0.72;
+  let assetVol = 0.018; 
+  let assetDrift = 0.0006; 
+  
+  if (sym === "BTC" || sym === "ETH") {
+    correlation = 0.35;
+    assetVol = 0.035; 
+    assetDrift = 0.0015;
+  } else if (sym === "TSLA") {
+    correlation = 0.58;
+    assetVol = 0.028;
+    assetDrift = 0.0004;
+  } else if (sym === "NVDA") {
+    correlation = 0.78;
+    assetVol = 0.030;
+    assetDrift = 0.0020;
+  } else if (sym.includes("/")) {
+    correlation = 0.08;
+    assetVol = 0.005; 
+    assetDrift = 0.0;
+  } else if (sym === "CARM-PAT" || sym === "AMUN-ACT") {
+    correlation = 0.5;
+    assetVol = 0.008; 
+    assetDrift = 0.0003;
+  }
+  
+  const sp500Drift = 0.0005; 
+  const sp500Vol = 0.01; 
+  
+  let sp500Price = 5137.08;
+  let assetPrice = 150.0;
+  
+  if (sym === "AAPL") assetPrice = 185;
+  else if (sym === "NVDA") assetPrice = 912;
+  else if (sym === "TSLA") assetPrice = 179;
+  else if (sym === "MSFT") assetPrice = 415;
+  else if (sym === "BTC") assetPrice = 68420;
+  else if (sym === "ETH") assetPrice = 3842;
+  else if (sym === "CARM-PAT") assetPrice = 625.4;
+  else if (sym === "AMUN-ACT") assetPrice = 248.15;
+  else if (sym === "EUR/USD") assetPrice = 1.0854;
+  else if (sym === "GBP/USD") assetPrice = 1.2742;
+
+  const points: { date: string; sp500Price: number; assetPrice: number; sp500Return: number; assetReturn: number }[] = [];
+  
+  const dates: Date[] = [];
+  let curr = new Date();
+  curr.setDate(curr.getDate() - Math.floor(days * 1.5 + 10));
+  
+  while (dates.length < days + 1) {
+    const dayOfWeek = curr.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { 
+      dates.push(new Date(curr));
+    }
+    curr.setDate(curr.getDate() + 1);
+  }
+  
+  let lastSpPrice = sp500Price;
+  let lastAssetPrice = assetPrice;
+  
+  for (let i = 0; i < dates.length; i++) {
+    const dateStr = dates[i].toISOString().split("T")[0];
+    
+    if (i === 0) {
+      points.push({
+        date: dateStr,
+        sp500Price: lastSpPrice,
+        assetPrice: lastAssetPrice,
+        sp500Return: 0,
+        assetReturn: 0
+      });
+      continue;
+    }
+    
+    const { z1, z2 } = getNormalRandom();
+    const spReturnVal = sp500Drift + sp500Vol * z1;
+    const assetReturnVal = assetDrift + assetVol * (correlation * z1 + Math.sqrt(1 - correlation * correlation) * z2);
+    
+    const currentSpPrice = parseFloat((lastSpPrice * (1 + spReturnVal)).toFixed(2));
+    const currentAssetPrice = parseFloat((lastAssetPrice * (1 + assetReturnVal)).toFixed(sym.includes("/") ? 4 : 2));
+    
+    points.push({
+      date: dateStr,
+      sp500Price: currentSpPrice,
+      assetPrice: currentAssetPrice,
+      sp500Return: parseFloat((spReturnVal * 100).toFixed(4)),
+      assetReturn: parseFloat((assetReturnVal * 100).toFixed(4))
+    });
+    
+    lastSpPrice = currentSpPrice;
+    lastAssetPrice = currentAssetPrice;
+  }
+  
+  const slicedPoints = points.slice(-days);
+  const n = slicedPoints.length;
+  
+  let sumX = 0, sumY = 0;
+  slicedPoints.forEach((p) => {
+    sumX += p.sp500Return;
+    sumY += p.assetReturn;
+  });
+  
+  const meanX = sumX / n;
+  const meanY = sumY / n;
+  
+  let num = 0;
+  let denX = 0;
+  let denY = 0;
+  
+  slicedPoints.forEach((p) => {
+    const dx = p.sp500Return - meanX;
+    const dy = p.assetReturn - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  });
+  
+  const r = denX === 0 || denY === 0 ? 0 : num / Math.sqrt(denX * denY);
+  const beta = denX === 0 ? 0 : num / denX;
+  const alpha = meanY - beta * meanX;
+  const r2 = r * r;
+  
+  const varX = denX / (n - 1);
+  const varY = denY / (n - 1);
+  const annVolX = parseFloat((Math.sqrt(varX * 252) * 100).toFixed(2));
+  const annVolY = parseFloat((Math.sqrt(varY * 252) * 100).toFixed(2));
+
+  return {
+    symbol: sym,
+    correlationCoefficient: parseFloat(r.toFixed(4)),
+    rSquared: parseFloat(r2.toFixed(4)),
+    beta: parseFloat(beta.toFixed(4)),
+    alpha: parseFloat(alpha.toFixed(4)),
+    meanSP500Return: parseFloat((meanX).toFixed(4)),
+    meanAssetReturn: parseFloat((meanY).toFixed(4)),
+    volatilitySP500Ann: annVolX,
+    volatilityAssetAnn: annVolY,
+    points: slicedPoints.map((p) => ({
+      date: p.date,
+      sp500Price: p.sp500Price,
+      assetPrice: p.assetPrice,
+      sp500Return: p.sp500Return,
+      assetReturn: p.assetReturn
+    }))
+  };
+}
+
+app.get("/api/correlation-data", (req, res) => {
+  const symbol = (req.query.symbol as string || "AAPL").toUpperCase();
+  const days = parseInt(req.query.days as string, 10) || 90;
+  const data = generateCorrelatedHistory(symbol, days);
+  res.json(data);
+});
+
 app.get("/api/social-sentiment", (req, res) => {
   const symbol = (req.query.symbol as string || "AAPL").toUpperCase();
   const sentiment = generateMockSocialSentiment(symbol);
