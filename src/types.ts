@@ -68,13 +68,16 @@ export interface HistoricAdvice {
   riskScore: string;
   rationale: string;
   currentPriceAtReview?: number; // Latest price to calculate gains/losses
+  marketRsi?: number;            // Associated market indicators of the moment
+  marketSma20?: number;          // Associated market indicators of the moment
+  marketTrend?: string;          // Associated market indicators of the moment
 }
 
 export interface PersonalizedAlert {
   id: string;
   symbol: string;
   assetType: "Stock" | "Crypto" | "SICAV" | "Devise";
-  condition: "ABOVE" | "BELOW";
+  condition: string;
   targetPrice: number;
   createdAt: string;
   triggered: boolean;

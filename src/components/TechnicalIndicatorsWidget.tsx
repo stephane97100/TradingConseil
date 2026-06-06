@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { StockCandle } from "../types";
-import { Info, HelpCircle, Activity, Shield, LineChart, Cpu, Sparkles } from "lucide-react";
+import { Info, HelpCircle, Activity, Shield, LineChart as LineChartIcon, Cpu, Sparkles } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, ReferenceLine, ResponsiveContainer } from "recharts";
 
 interface TechnicalIndicatorsWidgetProps {
   symbol: string;
@@ -8,7 +9,156 @@ interface TechnicalIndicatorsWidgetProps {
 }
 
 export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicatorsWidgetProps) {
-  const [activeTab, setActiveTab] = useState<"rsi" | "macd" | "bollinger" | "ichimoku">("rsi");
+  const [activeTab, setActiveTab] = useState<"rsi" | "macd" | "bollinger" | "ichimoku" | "compare">("rsi");
+
+  const getDefaultCompareSymbol = (mainSym: string) => {
+    const s = mainSym.toUpperCase();
+    if (s === "AAPL") return "MSFT";
+    if (s === "MSFT") return "AAPL";
+    if (s === "BTC") return "ETH";
+    if (s === "ETH") return "BTC";
+    if (s === "EUR/USD") return "GBP/USD";
+    return "MSFT";
+  };
+
+  const [compareSymbol, setCompareSymbol] = useState(() => getDefaultCompareSymbol(symbol));
+  const [compareHistory, setCompareHistory] = useState<StockCandle[]>([]);
+  const [loadingCompare, setLoadingCompare] = useState(false);
+  const [customCompareInput, setCustomCompareInput] = useState("");
+
+  React.useEffect(() => {
+    setCompareSymbol(getDefaultCompareSymbol(symbol));
+  }, [symbol]);
+
+  React.useEffect(() => {
+    if (activeTab !== "compare" || !compareSymbol) return;
+    let active = true;
+    setLoadingCompare(true);
+    fetch(`/api/stock-history?symbol=${compareSymbol.toUpperCase()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Erreur de récupération");
+        return res.json();
+      })
+      .then((data) => {
+        if (active) {
+          setCompareHistory(data.history || []);
+        }
+      })
+      .catch((err) => {
+        console.error("Erreur de récupération comparatif :", err);
+      })
+      .finally(() => {
+        if (active) setLoadingCompare(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [compareSymbol, activeTab]);
+
+  const quickCompareSuggestions = [
+    { label: "Apple (AAPL)", value: "AAPL" },
+    { label: "Microsoft (MSFT)", value: "MSFT" },
+    { label: "NVIDIA (NVDA)", value: "NVDA" },
+    { label: "Tesla (TSLA)", value: "TSLA" },
+    { label: "Bitcoin (BTC)", value: "BTC" },
+    { label: "Ethereum (ETH)", value: "ETH" },
+    { label: "EUR/USD", value: "EUR/USD" },
+    { label: "CARM-PAT", value: "CARM-PAT" },
+  ];
+
+  const mainMetrics = React.useMemo(() => {
+    if (!history || history.length < 15) return null;
+    const closesArr = history.map((h) => h.close);
+    const lastPrice = closesArr[closesArr.length - 1] || 0;
+    
+    // RSI
+    let gains = 0;
+    let losses = 0;
+    for (let i = closesArr.length - 14; i < closesArr.length && i >= 1; i++) {
+      const diff = closesArr[i] - closesArr[i - 1];
+      if (diff > 0) gains += diff;
+      else losses += Math.abs(diff);
+    }
+    const avgGain = gains / 14 || 1;
+    const avgLoss = losses / 14 || 1;
+    const rs = avgGain / avgLoss;
+    const rsiVal = Math.round(100 - 100 / (1 + rs));
+
+    // SMA 20
+    const period = Math.min(20, closesArr.length);
+    const sum = closesArr.slice(closesArr.length - period).reduce((acc, v) => acc + v, 0);
+    const sma20Val = parseFloat((sum / period).toFixed(2));
+
+    const isAboveSma = lastPrice >= sma20Val;
+    const diffSmaPct = ((lastPrice - sma20Val) / sma20Val) * 100;
+
+    let rsiStatusText = "Momentum Neutre";
+    let rsiBadgeColor = "text-indigo-400 bg-indigo-500/10 border-indigo-505/20";
+    if (rsiVal >= 70) {
+      rsiStatusText = "Suracheté (Risque de repli)";
+      rsiBadgeColor = "text-rose-400 bg-rose-505/10 border-rose-500/20";
+    } else if (rsiVal <= 35) {
+      rsiStatusText = "Sursoldé (Opportunité d'achat)";
+      rsiBadgeColor = "text-emerald-400 bg-emerald-555/10 border-emerald-500/20";
+    }
+
+    return {
+      price: lastPrice,
+      rsi: rsiVal,
+      rsiStatusText,
+      rsiBadgeColor,
+      sma20: sma20Val,
+      isAboveSma,
+      diffSmaPct,
+    };
+  }, [history]);
+
+  const compareMetrics = React.useMemo(() => {
+    if (!compareHistory || compareHistory.length < 15) return null;
+    const closesArr = compareHistory.map((h) => h.close);
+    const lastPrice = closesArr[closesArr.length - 1] || 0;
+    
+    // RSI
+    let gains = 0;
+    let losses = 0;
+    for (let i = closesArr.length - 14; i < closesArr.length && i >= 1; i++) {
+      const diff = closesArr[i] - closesArr[i - 1];
+      if (diff > 0) gains += diff;
+      else losses += Math.abs(diff);
+    }
+    const avgGain = gains / 14 || 1;
+    const avgLoss = losses / 14 || 1;
+    const rs = avgGain / avgLoss;
+    const rsiVal = Math.round(100 - 100 / (1 + rs));
+
+    // SMA 20
+    const period = Math.min(20, closesArr.length);
+    const sum = closesArr.slice(closesArr.length - period).reduce((acc, v) => acc + v, 0);
+    const sma20Val = parseFloat((sum / period).toFixed(2));
+
+    const isAboveSma = lastPrice >= sma20Val;
+    const diffSmaPct = ((lastPrice - sma20Val) / sma20Val) * 100;
+
+    let rsiStatusText = "Momentum Neutre";
+    let rsiBadgeColor = "text-indigo-400 bg-indigo-500/10 border-indigo-550/20";
+    if (rsiVal >= 70) {
+      rsiStatusText = "Suracheté (Risque de repli)";
+      rsiBadgeColor = "text-rose-400 bg-rose-505/10 border-rose-500/20";
+    } else if (rsiVal <= 35) {
+      rsiStatusText = "Sursoldé (Opportunité d'achat)";
+      rsiBadgeColor = "text-emerald-400 bg-emerald-555/10 border-emerald-500/20";
+    }
+
+    return {
+      price: lastPrice,
+      rsi: rsiVal,
+      rsiStatusText,
+      rsiBadgeColor,
+      sma20: sma20Val,
+      isAboveSma,
+      diffSmaPct,
+    };
+  }, [compareHistory]);
 
   if (!history || history.length < 15) {
     return (
@@ -41,6 +191,34 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
     return Math.round(100 - 100 / (1 + rs));
   };
   const rsiValue = calculateRSI();
+
+  // RSI Sparkline Data for the last 30 days
+  const rsiHistoryData = React.useMemo(() => {
+    const list: { date: string; value: number }[] = [];
+    const count = Math.min(30, history.length - 14);
+    if (count <= 0) return [];
+    
+    for (let k = history.length - count; k < history.length; k++) {
+      const subset = closes.slice(0, k + 1);
+      let gains = 0;
+      let losses = 0;
+      const startIndex = Math.max(1, subset.length - 14);
+      for (let i = startIndex; i < subset.length; i++) {
+        const diff = subset[i] - subset[i - 1];
+        if (diff > 0) {
+          gains += diff;
+        } else {
+          losses += Math.abs(diff);
+        }
+      }
+      const avgGain = gains / 14 || 1;
+      const avgLoss = losses / 14 || 1;
+      const rs = avgGain / avgLoss;
+      const val = Math.round(100 - 100 / (1 + rs));
+      list.push({ date: history[k]?.date || `J-${history.length - k}`, value: val });
+    }
+    return list;
+  }, [closes, history]);
 
   // 2. Bollinger Bands calculation (20 period)
   const calculateBollinger = () => {
@@ -138,7 +316,7 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div className="space-y-0.5">
           <h2 className="text-sm font-display font-bold text-white tracking-tight flex items-center gap-1.5">
-            <LineChart className="w-4 h-4 text-emerald-400" />
+            <LineChartIcon className="w-4 h-4 text-emerald-400" />
             Signaux Techniques Avancés
           </h2>
           <p className="text-[10px] text-slate-500 font-mono">
@@ -148,7 +326,7 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
         
         {/* Navigation items resembling trading terminal style */}
         <div className="flex flex-wrap gap-1 bg-slate-950 p-1.5 rounded-lg border border-slate-850">
-          {(["rsi", "macd", "bollinger", "ichimoku"] as const).map((t) => (
+          {(["rsi", "macd", "bollinger", "ichimoku", "compare"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
@@ -158,7 +336,7 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
                   : "text-slate-500 hover:text-slate-350"
               }`}
             >
-              {t === "bollinger" ? "Bollinger" : t}
+              {t === "bollinger" ? "Bollinger" : t === "compare" ? "Comparatif" : t}
             </button>
           ))}
         </div>
@@ -169,11 +347,40 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
         
         {activeTab === "rsi" && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-350 text-xs font-mono font-bold">RSI (Relative Strength Index 14)</span>
-              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${getRSIStatus().color}`}>
-                RSI: {rsiValue} — {getRSIStatus().text}
-              </span>
+            <div className="flex flex-col md:flex-row gap-3 md:items-center justify-between bg-slate-950/45 p-3 rounded-lg border border-slate-850">
+              <div className="space-y-1">
+                <span className="text-slate-350 text-xs font-mono font-bold block">RSI (Relative Strength Index 14)</span>
+                <span className={`text-[10px] inline-block font-mono font-bold px-2 py-0.5 rounded border ${getRSIStatus().color}`}>
+                  RSI: {rsiValue} — {getRSIStatus().text}
+                </span>
+              </div>
+              
+              {/* Sparkline list of the last 30 periods */}
+              {rsiHistoryData.length > 0 && (
+                <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded h-11 min-w-[140px]" title="Évolution du RSI (30j)">
+                  <div className="flex flex-col justify-between h-full font-mono text-[7px] text-slate-500 select-none">
+                    <span>70</span>
+                    <span>30</span>
+                  </div>
+                  <div className="w-24 h-7">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={rsiHistoryData} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+                        <YAxis domain={[0, 100]} hide={true} />
+                        <XAxis hide={true} />
+                        <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="2 2" opacity={0.3} />
+                        <ReferenceLine y={30} stroke="#10b981" strokeDasharray="2 2" opacity={0.3} />
+                        <Line 
+                          type="monotone" 
+                          dataKey="value" 
+                          stroke="#6366f1" 
+                          strokeWidth={1.5} 
+                          dot={false} 
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Visual Gauge line for RSI */}
@@ -326,6 +533,236 @@ export function TechnicalIndicatorsWidget({ symbol, history }: TechnicalIndicato
                 <strong className="text-emerald-400">Conseil d'Arbitrage : </strong> {getIchimokuStatus().advice}
               </p>
             </div>
+          </div>
+        )}
+
+        {activeTab === "compare" && (
+          <div className="space-y-4">
+            {/* Asset Selector Header */}
+            <div className="bg-slate-950/45 p-3 rounded-lg border border-slate-850 space-y-2.5 animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="text-slate-350 text-xs font-mono font-bold">Actif de comparaison :</span>
+                
+                <div className="flex gap-1.5 items-center">
+                  <input
+                    type="text"
+                    value={customCompareInput}
+                    onChange={(e) => setCustomCompareInput(e.target.value.toUpperCase())}
+                    placeholder="Saisir ticker (ex: NVDA)"
+                    className="bg-slate-900 border border-slate-800 text-white rounded px-2.5 py-1 text-xs w-36 text-center font-mono font-bold focus:outline-none focus:border-indigo-550 transition-all placeholder:text-slate-600"
+                  />
+                  <button
+                    onClick={() => {
+                      if (customCompareInput.trim()) {
+                        setCompareSymbol(customCompareInput.trim().toUpperCase());
+                        setCustomCompareInput("");
+                      }
+                    }}
+                    className="bg-indigo-600/20 hover:bg-indigo-650/30 text-indigo-400 border border-indigo-505/15 text-[10px] font-bold px-2.5 py-1.5 rounded transition-all uppercase tracking-wider scale-100 hover:scale-102 active:scale-98"
+                  >
+                    Comparer
+                  </button>
+                </div>
+              </div>
+
+              {/* Suggestions row with easy quick taps */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[10px] font-mono text-slate-500">Sélection rapide :</span>
+                {quickCompareSuggestions.map((item) => (
+                  <button
+                    key={item.value}
+                    disabled={item.value === symbol}
+                    onClick={() => setCompareSymbol(item.value)}
+                    className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded border transition-all ${
+                      compareSymbol === item.value
+                        ? "bg-indigo-500/15 text-indigo-400 border-indigo-500/40"
+                        : "bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200"
+                    } disabled:opacity-30`}
+                  >
+                    {item.value}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Comparison results */}
+            {loadingCompare ? (
+              <div className="flex flex-col items-center justify-center py-8 bg-slate-950/20 border border-slate-850 rounded-lg">
+                <Activity className="w-5 h-5 text-indigo-400 animate-spin mb-2" />
+                <span className="text-[11px] font-mono text-slate-500">Calcul des métriques de {compareSymbol}...</span>
+              </div>
+            ) : !mainMetrics || !compareMetrics ? (
+              <div className="p-4 bg-slate-950/20 border border-slate-850 rounded-lg text-center">
+                <p className="text-xs text-slate-400 font-mono">
+                  Chargement insuffisant ou erreur lors du traitement de l'actif {compareSymbol}...
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Advanced comparative table */}
+                <div className="overflow-hidden rounded-lg border border-slate-850 bg-slate-950/40">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-850 bg-slate-950">
+                        <th className="p-3 text-[10px] uppercase font-mono text-slate-400 font-bold">Métriques Clés</th>
+                        <th className="p-3 text-center text-xs font-bold text-emerald-400 bg-emerald-500/5 border-l border-slate-850">
+                          {symbol}
+                        </th>
+                        <th className="p-3 text-center text-xs font-bold text-indigo-400 bg-indigo-500/5 border-l border-slate-850">
+                          {compareSymbol}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-850 font-mono">
+                      {/* Price row */}
+                      <tr>
+                        <td className="p-3 text-[11px] text-slate-300 font-sans font-bold">Prix de Fermeture</td>
+                        <td className="p-3 text-center text-slate-100 font-bold border-l border-slate-850">
+                          {mainMetrics.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="p-3 text-center text-slate-100 font-bold border-l border-slate-850">
+                          {compareMetrics.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+
+                      {/* RSI row */}
+                      <tr>
+                        <td className="p-3 text-[11px] text-slate-350 font-sans font-semibold">Indicateur RSI (14)</td>
+                        <td className="p-3 text-center border-l border-slate-850">
+                          <span className={`inline-block font-bold px-2 py-0.5 rounded text-[10px] ${mainMetrics.rsiBadgeColor}`}>
+                            {mainMetrics.rsi} — {mainMetrics.rsi >= 70 ? "Suracheté" : mainMetrics.rsi <= 35 ? "Sursoldé" : "Neutre"}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center border-l border-slate-850">
+                          <span className={`inline-block font-bold px-2 py-0.5 rounded text-[10px] ${compareMetrics.rsiBadgeColor}`}>
+                            {compareMetrics.rsi} — {compareMetrics.rsi >= 70 ? "Suracheté" : compareMetrics.rsi <= 35 ? "Sursoldé" : "Neutre"}
+                          </span>
+                        </td>
+                      </tr>
+
+                      {/* SMA-20 row */}
+                      <tr>
+                        <td className="p-3 text-[11px] text-slate-350 font-sans font-semibold">SMA (20 périodes)</td>
+                        <td className="p-3 text-center text-slate-350 border-l border-slate-850">
+                          {mainMetrics.sma20.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="p-3 text-center text-slate-350 border-l border-slate-850">
+                          {compareMetrics.sma20.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+
+                      {/* SMA Offset row */}
+                      <tr>
+                        <td className="p-3 text-[11px] text-slate-350 font-sans font-semibold">Écart Relatif vs SMA-20</td>
+                        <td className={`p-3 text-center font-bold border-l border-slate-850 ${
+                          mainMetrics.isAboveSma ? "text-emerald-400" : "text-rose-450"
+                        }`}>
+                          {mainMetrics.isAboveSma ? "▲ +" : "▼ "}{mainMetrics.diffSmaPct.toFixed(2)}%
+                        </td>
+                        <td className={`p-3 text-center font-bold border-l border-slate-850 ${
+                          compareMetrics.isAboveSma ? "text-emerald-400" : "text-rose-450"
+                        }`}>
+                          {compareMetrics.isAboveSma ? "▲ +" : "▼ "}{compareMetrics.diffSmaPct.toFixed(2)}%
+                        </td>
+                      </tr>
+
+                      {/* Trend recommendation row */}
+                      <tr>
+                        <td className="p-3 text-[11px] text-slate-350 font-sans font-semibold">Positionnement Court Terme</td>
+                        <td className="p-3 text-center text-[10px] font-sans border-l border-slate-850">
+                          <span className={mainMetrics.isAboveSma ? "text-emerald-450 font-bold" : "text-slate-400"}>
+                            {mainMetrics.isAboveSma ? "Momentum Haussier" : "Baisse sous Pivot"}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center text-[10px] font-sans border-l border-slate-850">
+                          <span className={compareMetrics.isAboveSma ? "text-emerald-450 font-bold" : "text-slate-400"}>
+                            {compareMetrics.isAboveSma ? "Momentum Haussier" : "Baisse sous Pivot"}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Side-by-side Visual RSI Comparison bar charts */}
+                <div className="bg-slate-950/65 p-3 rounded-lg border border-slate-850 space-y-3">
+                  <div className="text-[10px] font-bold text-slate-450 font-mono tracking-wider uppercase">
+                    Graphique de Force RSI Comparé :
+                  </div>
+                  
+                  {/* Progress active bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] font-mono">
+                      <span className="text-emerald-400 font-bold">{symbol}</span>
+                      <span className="text-slate-300 font-semibold">{mainMetrics.rsi} / 100</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
+                      <div 
+                        style={{ width: `${mainMetrics.rsi}%` }} 
+                        className={`h-full rounded-full ${
+                          mainMetrics.rsi >= 70 
+                            ? "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" 
+                            : mainMetrics.rsi <= 35 
+                              ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" 
+                              : "bg-indigo-500"
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Progress compare bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] font-mono">
+                      <span className="text-indigo-400 font-bold">{compareSymbol}</span>
+                      <span className="text-slate-300 font-semibold">{compareMetrics.rsi} / 100</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
+                      <div 
+                        style={{ width: `${compareMetrics.rsi}%` }} 
+                        className={`h-full rounded-full ${
+                          compareMetrics.rsi >= 70 
+                            ? "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" 
+                            : compareMetrics.rsi <= 35 
+                              ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" 
+                              : "bg-indigo-500"
+                        }`}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Side-by-side decision recommendation note */}
+                <div className="bg-emerald-500/5 border border-emerald-500/10 p-3.5 rounded-lg space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-xs font-bold text-slate-200 font-sans">Aide à la Prise de Décision</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed font-light font-sans">
+                    {mainMetrics.rsi <= 35 && compareMetrics.rsi >= 70 ? (
+                      <span>
+                        Arbitrage fortement conseillé en faveur de l'actif <strong className="text-emerald-450">{symbol}</strong>. <strong className="text-emerald-400">{symbol}</strong> est en zone idéale d'accumulation technique (RSI de survente à {mainMetrics.rsi}) alors que <strong className="text-rose-400">{compareSymbol}</strong> montre une fatigue acheteuse due à sa surchauffe importante (RSI {compareMetrics.rsi}).
+                      </span>
+                    ) : mainMetrics.rsi >= 70 && compareMetrics.rsi <= 35 ? (
+                      <span>
+                        Arbitrage fortement conseillé en faveur de l'actif <strong className="text-emerald-450">{compareSymbol}</strong>. <strong className="text-emerald-450">{compareSymbol}</strong> est en phase idéale d'accumulation technique (RSI de survente à {compareMetrics.rsi}) alors que <strong className="text-rose-400">{symbol}</strong> montre une fatigue acheteuse due à sa surchauffe importante (RSI {mainMetrics.rsi}).
+                      </span>
+                    ) : (
+                      <span>
+                        Les deux actifs {symbol} (RSI {mainMetrics.rsi}) et {compareSymbol} (RSI {compareMetrics.rsi}) sont dans des situations de momentum modéré. {
+                          mainMetrics.isAboveSma && !compareMetrics.isAboveSma ? (
+                            <span> L'actif <strong className="text-emerald-405 font-semibold text-emerald-400">{symbol}</strong> démontre une force boursière relative supérieure car sa courbe de cours continue d'évoluer au-dessus de sa moyenne mobile 20 jours.</span>
+                          ) : !mainMetrics.isAboveSma && compareMetrics.isAboveSma ? (
+                            <span> L'actif <strong className="text-indigo-400 font-semibold">{compareSymbol}</strong> démontre une force boursière relative supérieure car sa courbe de cours continue d'évoluer au-dessus de sa moyenne mobile 20 jours.</span>
+                          ) : (
+                            <span> Les deux actifs partagent la même orientation face à leur moyenne mobile à 20 jours, indiquant des conditions financières assez symétriques.</span>
+                          )
+                        }
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

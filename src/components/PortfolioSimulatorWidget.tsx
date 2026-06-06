@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { PortfolioPosition, VirtualPortfolio, HistoricAdvice } from "../types";
 import { Coins, TrendingUp, TrendingDown, RefreshCw, Wallet, ShoppingBag, ArrowUpRight, HelpCircle, Award } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from "recharts";
 
 interface PortfolioSimulatorWidgetProps {
   selectedSymbol: string;
@@ -33,12 +33,35 @@ export function PortfolioSimulatorWidget({
   });
 
   const [tradeQuantity, setTradeQuantity] = useState<string>("5");
-  const [activeTab, setActiveTab] = useState<"positions" | "benchmark">("positions");
+  const [activeTab, setActiveTab] = useState<"positions" | "benchmark" | "evolution">("positions");
+
+  // Load and preserve dynamic NAV history
+  const [navHistory, setNavHistory] = useState<{ date: string; value: number }[]>(() => {
+    const cached = localStorage.getItem("quantum_virtual_portfolio_history");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (_) {}
+    }
+    return [
+      { date: "09:00", value: 100000 },
+      { date: "10:30", value: 100850 },
+      { date: "12:00", value: 99400 },
+      { date: "14:15", value: 101500 },
+      { date: "15:45", value: 102100 },
+      { date: "17:00", value: 102800 }
+    ];
+  });
 
   // Sync to local storage
   useEffect(() => {
     localStorage.setItem("quantum_virtual_portfolio", JSON.stringify(portfolio));
   }, [portfolio]);
+
+  useEffect(() => {
+    localStorage.setItem("quantum_virtual_portfolio_history", JSON.stringify(navHistory));
+  }, [navHistory]);
 
   const activeSymbol = selectedSymbol.toUpperCase();
   const currentAssetCurrency = selectedAssetType === "SICAV" ? "€" : "$";
@@ -67,6 +90,25 @@ export function PortfolioSimulatorWidget({
   const initialFunds = 100000;
   const totalPL = netAssetValue - initialFunds;
   const totalPLPercent = ((totalPL / initialFunds) * 100).toFixed(2);
+
+  // Dynamic NAV History capture block
+  useEffect(() => {
+    const timeStr = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    setNavHistory((prev) => {
+      const lastPoint = prev[prev.length - 1];
+      const roundedNav = parseFloat(netAssetValue.toFixed(2));
+      if (lastPoint && Math.abs(lastPoint.value - roundedNav) < 1) {
+        return prev;
+      }
+      if (lastPoint && lastPoint.date === timeStr) {
+        const updated = [...prev];
+        updated[updated.length - 1] = { date: timeStr, value: roundedNav };
+        return updated;
+      } else {
+        return [...prev, { date: timeStr, value: roundedNav }].slice(-30);
+      }
+    });
+  }, [netAssetValue]);
 
   // Buy operations
   const handleBuy = () => {
@@ -324,7 +366,7 @@ export function PortfolioSimulatorWidget({
 
       {/* Simulator Navigation tabs */}
       <div className="border-t border-slate-850 pt-3 space-y-3">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setActiveTab("positions")}
             className={`px-3 py-1 text-xs rounded font-semibold transition-colors ${
@@ -342,9 +384,18 @@ export function PortfolioSimulatorWidget({
             <Award className="w-3.5 h-3.5 text-indigo-400" />
             Performance vs Recommandations AI
           </button>
+          <button
+            onClick={() => setActiveTab("evolution")}
+            className={`px-3 py-1 text-xs rounded font-semibold transition-colors flex items-center gap-1.5 ${
+              activeTab === "evolution" ? "bg-slate-800 text-white" : "text-slate-400 hover:text-slate-350"
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-450" />
+            Évolution Temporelle NAV
+          </button>
         </div>
 
-        {activeTab === "positions" ? (
+        {activeTab === "positions" && (
           <div className="space-y-2">
             <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1">
               {positionsArr.map((pos) => {
@@ -419,7 +470,9 @@ export function PortfolioSimulatorWidget({
               </div>
             )}
           </div>
-        ) : (
+        )}
+
+        {activeTab === "benchmark" && (
           <div className="space-y-3 bg-slate-950/70 border border-slate-850 p-3.5 rounded-lg">
             <div className="flex items-center justify-between border-b border-slate-850 pb-2">
               <span className="text-[11px] text-slate-300">Portefeuille Spéculatif Retail (Vous)</span>
@@ -446,6 +499,63 @@ export function PortfolioSimulatorWidget({
                 {performanceGap >= 0 ? "SURPERFORMANCE : +" : "SOUS-PERFORMANCE : "}{performanceGap}%
               </span>
             </div>
+          </div>
+        )}
+
+        {activeTab === "evolution" && (
+          <div className="space-y-3 bg-slate-950/70 border border-slate-850 p-3.5 rounded-lg">
+            <div className="flex items-center justify-between border-b border-slate-850 pb-2">
+              <span className="text-[11px] text-slate-300">Évolution de la Valeur Liquidative (NAV)</span>
+              <span className="text-xs font-mono font-bold text-emerald-400">
+                {netAssetValue.toLocaleString(undefined, { minimumFractionDigits: 1 })} {currentAssetCurrency}
+              </span>
+            </div>
+            
+            <div className="w-full h-32">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={navHistory} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorNav" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.25} />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#475569" 
+                    fontSize={8} 
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis 
+                    stroke="#475569" 
+                    fontSize={8} 
+                    tickLine={false}
+                    axisLine={false}
+                    domain={['auto', 'auto']}
+                    tickFormatter={(v) => typeof v === 'number' ? `${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}` : v}
+                  />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#020617', borderColor: '#1e293b', borderRadius: '4px', fontSize: '9px', padding: '4px 8px' }}
+                    labelStyle={{ color: '#94a3b8' }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke="#10b981" 
+                    strokeWidth={1.5}
+                    fillOpacity={1} 
+                    fill="url(#colorNav)" 
+                    name="NAV"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            
+            <p className="text-[9px] text-slate-500 font-normal leading-tight text-center font-mono">
+              Ce graphique retrace passivement en temps réel l'évolution de la valeur nette de votre portefeuille simulé (espèces + valeur boursière des positions) au fil de vos arbitrages.
+            </p>
           </div>
         )}
       </div>

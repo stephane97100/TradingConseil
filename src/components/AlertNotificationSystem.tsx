@@ -4,11 +4,11 @@ import { Bell, CheckCircle2, Plus, Trash2 } from "lucide-react";
 
 interface AlertNotificationSystemProps {
   alerts: PersonalizedAlert[];
-  onAddAlert: (symbol: string, assetType: "Stock" | "Crypto" | "SICAV", condition: "ABOVE" | "BELOW", price: number) => void;
+  onAddAlert: (symbol: string, assetType: "Stock" | "Crypto" | "SICAV" | "Devise", condition: string, price: number) => void;
   onRemoveAlert: (id: string) => void;
   currentPrice: number;
   currentSymbol: string;
-  assetType: "Stock" | "Crypto" | "SICAV";
+  assetType: "Stock" | "Crypto" | "SICAV" | "Devise";
 }
 
 export const AlertNotificationSystem: React.FC<AlertNotificationSystemProps> = ({
@@ -29,7 +29,7 @@ export const AlertNotificationSystem: React.FC<AlertNotificationSystemProps> = (
   };
 
   const [targetPrice, setTargetPrice] = useState<string>("");
-  const [condition, setCondition] = useState<"ABOVE" | "BELOW">("ABOVE");
+  const [condition, setCondition] = useState<string>("ABOVE");
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
 
   useEffect(() => {
@@ -52,8 +52,15 @@ export const AlertNotificationSystem: React.FC<AlertNotificationSystemProps> = (
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    const numPrice = parseFloat(targetPrice);
-    if (isNaN(numPrice) || numPrice <= 0) return;
+    let numPrice = parseFloat(targetPrice);
+    
+    // Auto-fill price threshold for SMA rules as they are dynamic crossover indicators
+    if (condition.startsWith("SMA_")) {
+      numPrice = 0; // Handled programmatically for crossover against current candle average
+    } else {
+      if (isNaN(numPrice) || numPrice <= 0) return;
+    }
+    
     onAddAlert(currentSymbol, assetType, condition, numPrice);
     setTargetPrice("");
   };
@@ -99,26 +106,42 @@ export const AlertNotificationSystem: React.FC<AlertNotificationSystemProps> = (
             <select
               id="select-condition"
               value={condition}
-              onChange={(e) => setCondition(e.target.value as "ABOVE" | "BELOW")}
+              onChange={(e) => setCondition(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 text-xs text-slate-300 px-2.5 py-1.5 rounded focus:outline-none font-sans"
             >
-              <option value="ABOVE">Franchit à la Hausse ( &gt; )</option>
-              <option value="BELOW">Franchit à la Baisse ( &lt; )</option>
+              <option value="ABOVE">Prix dépasse le cours ( &gt; )</option>
+              <option value="BELOW">Prix tombe sous le cours ( &lt; )</option>
+              <option value="RSI_ABOVE">RSI dépasse le seuil ( &gt; )</option>
+              <option value="RSI_BELOW">RSI tombe sous le seuil ( &lt; )</option>
+              <option value="SMA_ABOVE">Prix franchit SMA(20) à la Hausse ( Crossover &gt; )</option>
+              <option value="SMA_BELOW">Prix tombe sous SMA(20) à la Baisse ( Crossover &lt; )</option>
             </select>
           </div>
 
           {/* Target input */}
           <div>
-            <span className="block text-[8px] text-slate-500 font-mono uppercase tracking-wider mb-1">Seuil ({currencySym})</span>
-            <input
-              id="input-alert-price"
-              type="number"
-              step="any"
-              placeholder={`ex. ${(currentPrice * (condition === "ABOVE" ? 1.04 : 0.96)).toFixed(2)}`}
-              value={targetPrice}
-              onChange={(e) => setTargetPrice(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 text-xs text-slate-200 px-2.5 py-1.5 rounded focus:outline-none font-mono"
-            />
+            <span className="block text-[8px] text-slate-500 font-mono uppercase tracking-wider mb-1">
+              {condition.startsWith("RSI") 
+                ? "Seuil RSI (0 à 100)" 
+                : condition.startsWith("SMA") 
+                ? "Seuil SMA(20)" 
+                : `Seuil de Prix (${currencySym})`}
+            </span>
+            {condition.startsWith("SMA") ? (
+              <div className="bg-slate-900/60 border border-slate-800/80 px-2.5 py-1.5 rounded text-xs text-indigo-400 font-mono italic">
+                Calculé dynamiquement sur SMA-20
+              </div>
+            ) : (
+              <input
+                id="input-alert-price"
+                type="number"
+                step="any"
+                placeholder={condition.startsWith("RSI") ? "ex. 70" : `ex. ${(currentPrice * (condition === "ABOVE" ? 1.04 : 0.96)).toFixed(2)}`}
+                value={targetPrice}
+                onChange={(e) => setTargetPrice(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 text-xs text-slate-200 px-2.5 py-1.5 rounded focus:outline-none font-mono"
+              />
+            )}
           </div>
         </div>
 

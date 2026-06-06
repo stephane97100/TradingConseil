@@ -40,6 +40,31 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
+function calculateRSI(history: StockCandle[]) {
+  if (!history || history.length < 14) return 50;
+  const closes = history.map((h) => h.close);
+  let gains = 0;
+  let losses = 0;
+  for (let i = closes.length - 14; i < closes.length && i >= 1; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) {
+      gains += diff;
+    } else {
+      losses += Math.abs(diff);
+    }
+  }
+  const avgGain = gains / 14 || 1;
+  const avgLoss = losses / 14 || 1;
+  const rs = avgGain / avgLoss;
+  return Math.round(100 - 100 / (1 + rs));
+}
+
+function calculateSMA(history: StockCandle[], period: number = 20) {
+  if (!history || history.length < period) return history[history.length - 1]?.close || 0;
+  const sum = history.slice(history.length - period).reduce((acc, h) => acc + h.close, 0);
+  return parseFloat((sum / period).toFixed(4));
+}
+
 export default function App() {
   // Authentication & Dynamic Routing States
   const [currentView, setCurrentView] = useState<"landing" | "auth" | "app">(() => {
@@ -165,19 +190,25 @@ export default function App() {
       setAdvisorAdvice(data);
 
       const lastPrice = history[history.length - 1]?.close || currentSelectedPrice;
+      const computedRsi = calculateRSI(history);
+      const computedSma20 = calculateSMA(history, 20);
+      
       const newRecord: HistoricAdvice = {
         id: Math.random().toString(36).substring(2, 9),
         symbol,
         assetType: type,
         advicePrice: lastPrice,
-        adviceDate: new Date().toLocaleDateString("fr-FR"),
+        adviceDate: new Date().toLocaleString("fr-FR"),  // Timestamp down to the second
         verdict: data.verdict,
         confidence: data.confidence,
         targetPrice: data.targetPrice,
         stopLoss: data.stopLoss,
         riskScore: data.riskScore,
         rationale: data.rationale,
-        currentPriceAtReview: lastPrice
+        currentPriceAtReview: lastPrice,
+        marketRsi: computedRsi,
+        marketSma20: computedSma20,
+        marketTrend: data.shortTermTrend
       };
       setHistoricAdviceList((prev) => [newRecord, ...prev]);
     } catch (e) {
@@ -217,7 +248,7 @@ export default function App() {
   };
 
   // Custom alert creator
-  const handleAddAlert = (symbol: string, assetType: "Stock" | "Crypto" | "SICAV" | "Devise", condition: "ABOVE" | "BELOW", targetPrice: number) => {
+  const handleAddAlert = (symbol: string, assetType: "Stock" | "Crypto" | "SICAV" | "Devise", condition: string, targetPrice: number) => {
     const freshAlert: PersonalizedAlert = {
       id: Math.random().toString(36).substring(2, 9),
       symbol: symbol.toUpperCase(),
@@ -230,7 +261,19 @@ export default function App() {
     setAlerts((prev) => [...prev, freshAlert]);
     const isSicavAlert = assetType === "SICAV";
     const currencyStr = isSicavAlert ? "€" : assetType === "Devise" ? " USD" : "$";
-    triggerToast(`Règle d'alerte créée : ${symbol.toUpperCase()} à ${targetPrice}${currencyStr} !`);
+    
+    let labelCond = `à ${targetPrice}${currencyStr}`;
+    if (condition === "RSI_ABOVE") {
+      labelCond = `RSI > ${targetPrice}`;
+    } else if (condition === "RSI_BELOW") {
+      labelCond = `RSI < ${targetPrice}`;
+    } else if (condition === "SMA_ABOVE") {
+      labelCond = `croisement à la hausse de la SMA(20)`;
+    } else if (condition === "SMA_BELOW") {
+      labelCond = `croisement à la baisse de la SMA(20)`;
+    }
+    
+    triggerToast(`Règle d'alerte créée : ${symbol.toUpperCase()} ${labelCond} !`);
   };
 
   // Removes alert from list
@@ -247,26 +290,59 @@ export default function App() {
 
           const matchesSymbol = alert.symbol === selectedSymbol;
           if (matchesSymbol) {
-            const isAb = alert.condition === "ABOVE" && currentSelectedPrice >= alert.targetPrice;
-            const isBe = alert.condition === "BELOW" && currentSelectedPrice <= alert.targetPrice;
+            let isTriggered = false;
+            let triggerDetails = "";
 
-            if (isAb || isBe) {
+            const curPrice = currentSelectedPrice;
+            const isSicavAlert = alert.assetType === "SICAV";
+            const curSym = isSicavAlert ? "€" : alert.assetType === "Devise" ? " USD" : "$";
+
+            if (alert.condition === "ABOVE" && curPrice >= alert.targetPrice) {
+              isTriggered = true;
+              triggerDetails = `Cours (${curPrice}${curSym}) dépasse le seuil de ${alert.targetPrice}${curSym}`;
+            } else if (alert.condition === "BELOW" && curPrice <= alert.targetPrice) {
+              isTriggered = true;
+              triggerDetails = `Cours (${curPrice}${curSym}) tombe sous le seuil de ${alert.targetPrice}${curSym}`;
+            } else if (alert.condition === "RSI_ABOVE") {
+              const rsi = calculateRSI(candleHistory);
+              if (rsi >= alert.targetPrice) {
+                isTriggered = true;
+                triggerDetails = `RSI de l'actif (${rsi}) dépasse le seuil fixé à ${alert.targetPrice}`;
+              }
+            } else if (alert.condition === "RSI_BELOW") {
+              const rsi = calculateRSI(candleHistory);
+              if (rsi <= alert.targetPrice) {
+                isTriggered = true;
+                triggerDetails = `RSI de l'actif (${rsi}) tombe sous le seuil fixé à ${alert.targetPrice}`;
+              }
+            } else if (alert.condition === "SMA_ABOVE") {
+              const smaVal = calculateSMA(candleHistory, 20);
+              if (curPrice >= smaVal) {
+                isTriggered = true;
+                triggerDetails = `Cours (${curPrice}${curSym}) a franchi à la hausse sa moyenne mobile SMA(20) (${smaVal.toFixed(2)}${curSym})`;
+              }
+            } else if (alert.condition === "SMA_BELOW") {
+              const smaVal = calculateSMA(candleHistory, 20);
+              if (curPrice <= smaVal) {
+                isTriggered = true;
+                triggerDetails = `Cours (${curPrice}${curSym}) a franchi à la baisse sa moyenne mobile SMA(20) (${smaVal.toFixed(2)}${curSym})`;
+              }
+            }
+
+            if (isTriggered) {
               const audioStr = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==";
               try {
                 const alertSound = new Audio(audioStr);
                 alertSound.play().catch(() => {});
               } catch (_) {}
 
-              const isSicavAlert = alert.assetType === "SICAV";
-              const curSym = isSicavAlert ? "€" : alert.assetType === "Devise" ? " USD" : "$";
-              
               if ("Notification" in window && Notification.permission === "granted") {
-                new Notification(`Alerte de Prix franchie : ${alert.symbol}`, {
-                  body: `L'actif a dépassé le seuil de ${alert.targetPrice}${curSym} ! Prix: ${currentSelectedPrice}${curSym}`,
+                new Notification(`Alerte Déclenchée : ${alert.symbol}`, {
+                  body: triggerDetails,
                 });
               }
 
-              triggerToast(`🚨 Seuil franchi : ${alert.symbol} à ${alert.targetPrice}${curSym} !`);
+              triggerToast(`🚨 Seuil franchi : ${alert.symbol} ! ${triggerDetails}`);
               return { ...alert, triggered: true, triggerDate: new Date().toISOString() };
             }
           }
@@ -276,7 +352,23 @@ export default function App() {
     };
 
     checkTickerAlerts();
-  }, [currentSelectedPrice, selectedSymbol]);
+  }, [currentSelectedPrice, selectedSymbol, candleHistory]);
+
+  // Synchronizes and updates live prices inside Archived Advice performance list
+  useEffect(() => {
+    if (historicAdviceList.length === 0) return;
+    setHistoricAdviceList((prevList) => {
+      let isChanged = false;
+      const updatedList = prevList.map((item) => {
+        if (item.symbol.toUpperCase() === selectedSymbol.toUpperCase() && item.currentPriceAtReview !== currentSelectedPrice) {
+          isChanged = true;
+          return { ...item, currentPriceAtReview: currentSelectedPrice };
+        }
+        return item;
+      });
+      return isChanged ? updatedList : prevList;
+    });
+  }, [currentSelectedPrice, selectedSymbol, historicAdviceList.length]);
 
   // Toast banner utility helper
   const triggerToast = (msg: string) => {
